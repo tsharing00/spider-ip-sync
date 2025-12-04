@@ -52,10 +52,6 @@ FIREHOL_SOURCES = {
     # dshield
     "DShield_1d": "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/dshield_1d.netset",
 
-    # dataplane（全部 ipset）
-    "Dataplane_SSHClient": "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/dataplane_sshclient.ipset",
-    "Dataplane_SSHPwAuth": "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/dataplane_sshpwauth.ipset",
-
     # greensnow
     "GreenSnow": "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/greensnow.ipset",
 
