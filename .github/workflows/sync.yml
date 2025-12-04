@@ -1,4 +1,4 @@
-name: Auto Sync MyWaf Feed IPs
+name: Auto Sync Spider IPs
 
 # 触发条件
 on:
@@ -32,9 +32,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests beautifulsoup4
 
-      # 4. 运行 Python 脚本 (注意这里脚本名是 main.py)
+      # [调试步骤] 列出当前目录文件，确认 Python 脚本是否存在以及叫什么名字
+      - name: Debug - List files
+        run: ls -la
+
+      # 4. 运行 Python 脚本
+      # 根据报错提示找不到 main.py，推测您的仓库中文件名可能仍为 process_ips.py
+      # 请确保这里的 python <文件名> 与您仓库里的实际文件名完全一致
       - name: Run IP parser script
-        run: python main.py
+        run: python process_ips.py
 
       # 5. 提交并推送更改 (如果文件有变化)
       - name: Commit and Push changes
