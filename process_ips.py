@@ -39,7 +39,8 @@ WHITE_TEXT_SOURCES = {
 BLACK_TEXT_SOURCES = {
     "MaliciousOps": "https://ip-22617.rivers.chaitin.cn/api/share/ip_group/9c1a54395c174e94af2b704eda610d95?format=cidr",
     "ThreatIntel": "https://ip-22617.rivers.chaitin.cn/api/share/ip_group/d13d2a3f9bb34fc4b2c846e3e0bc03bc?format=cidr",
-    "ScannersAttacks": "https://ip-22617.rivers.chaitin.cn/api/share/ip_group/0ae14d75480842899342104743d2fc56?format=cidr"
+    "ScannersAttacks": "https://ip-22617.rivers.chaitin.cn/api/share/ip_group/0ae14d75480842899342104743d2fc56?format=cidr",
+    "ALiScan":"https://ip-22617.rivers.chaitin.cn/api/share/ip_group/d7f3432bc67645e2ab5fb777726a9eb5?format=cidr"
 }
 
 # 4. 恶意黑名单 - FireHOL 源 (文本/netset 格式)
