@@ -17,7 +17,7 @@ FILE_BLACK = "bad_black_ips.txt"
 
 # 请求头 (防止被某些接口拦截)
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; FeedMyWafIP/1.0; +https://github.com/)"
+    "User-Agent": "Mozilla/5.0 (compatible; FeedMyWafIP/2.0; +https://github.com/)"
 }
 
 # ----------------- 数据源定义 -----------------
@@ -71,6 +71,11 @@ FIREHOL_SOURCES = {
 def normalize_cidr(cidr_str):
     """标准化CIDR表示"""
     try:
+        # 清理空格
+        cidr_str = cidr_str.strip()
+        if not cidr_str:
+            return None
+            
         # 处理单独的IP地址
         if '/' not in cidr_str:
             return str(ipaddress.ip_network(cidr_str + '/32', strict=False))
@@ -78,8 +83,8 @@ def normalize_cidr(cidr_str):
         # 处理CIDR表示
         network = ipaddress.ip_network(cidr_str, strict=False)
         return str(network)
-    except (ValueError, ipaddress.AddressValueError) as e:
-        print(f"    > 警告: 无效的CIDR格式 '{cidr_str}': {e}")
+    except (ValueError, ipaddress.AddressValueError):
+        # 静默失败，不打印过多日志
         return None
 
 def merge_cidrs(cidr_set):
@@ -92,8 +97,8 @@ def merge_cidrs(cidr_set):
         if normalized:
             try:
                 networks.append(ipaddress.ip_network(normalized, strict=False))
-            except Exception as e:
-                print(f"    > 警告: 无法处理CIDR '{cidr}': {e}")
+            except Exception:
+                pass
     
     if not networks:
         return set()
@@ -180,13 +185,8 @@ def fetch_text_cidrs(name, url):
         
         lines = resp.text.splitlines()
         for line in lines:
-            # 1. 移除行内注释 (例如: 1.2.3.4 # comment)
-            line = line.split('#')[0]
-            # 2. 去除首尾空格
-            line = line.strip()
-            # 3. 校验非空
+            line = line.split('#')[0].strip()
             if line:
-                # 尝试标准化CIDR
                 normalized = normalize_cidr(line)
                 if normalized:
                     cidrs.add(normalized)
@@ -208,7 +208,6 @@ def fetch_badip_recent_days(days=7):
         url = f'https://www.badip.com/d-{date_str}.html'
         
         try:
-            # BadIP 可能有 SSL 问题，verify=False 是必须的
             response = requests.get(url, headers=HEADERS, verify=False, timeout=30)
             
             if response.status_code == 200:
@@ -222,46 +221,76 @@ def fetch_badip_recent_days(days=7):
                         if columns and len(columns) > 1:
                             ip = columns[1].text.strip()
                             if ip:
-                                # 标准化IP地址
                                 normalized = normalize_cidr(ip)
                                 if normalized:
                                     cidrs.add(normalized)
-                else:
-                    # 静默处理未找到表格的情况
-                    pass
             else:
-                print(f"    > {date_str}: HTTP {response.status_code}")
+                pass
                 
-        except Exception as e:
-            print(f"    > {date_str} 抓取异常: {e}")
+        except Exception:
+            pass
             
     print(f"    √ BadIP 总计去重后获取 {len(cidrs)} 个 IP 段")
     return cidrs
 
+def clean_blacklist_against_whitelist(black_set, white_set):
+    """
+    清洗黑名单：如果黑名单中的 IP 段属于白名单（是子网或相等），则从黑名单中移除。
+    注意：如果白名单是黑名单的子集（例如 Black=/16, White=/24），我们保留黑名单。
+    理由：拆分 /16 为非 /24 的网段会导致规则数量爆炸，这种情况交由 WAF 优先检查白名单逻辑处理。
+    """
+    print(f"[-] 正在进行冲突检测 (Whitelist Priority Check)...")
+    
+    # 将字符串集合转换为网络对象列表
+    white_nets = []
+    for w in white_set:
+        try:
+            white_nets.append(ipaddress.ip_network(w, strict=False))
+        except: pass
+        
+    black_nets = []
+    for b in black_set:
+        try:
+            black_nets.append(ipaddress.ip_network(b, strict=False))
+        except: pass
+        
+    cleaned_black = []
+    removed_count = 0
+    
+    # 优化：对于大规模列表，O(N*M) 会很慢，但考虑到白名单通常较小（几百条），
+    # 而脚本是一次性运行，这里采用直接遍历。
+    
+    for b_net in black_nets:
+        is_conflict = False
+        for w_net in white_nets:
+            # 判断逻辑：如果 黑名单段 是 白名单段 的子网 (subnet_of)
+            # 或者两者相等
+            # 例如: w_net=1.2.3.0/24, b_net=1.2.3.4 (b belong to w) -> REMOVE b
+            if b_net.subnet_of(w_net):
+                is_conflict = True
+                break
+        
+        if is_conflict:
+            removed_count += 1
+            # print(f"    > 移除冲突黑名单: {str(b_net)} (属于白名单)")
+        else:
+            cleaned_black.append(str(b_net))
+            
+    print(f"    √ 冲突清洗完成: 移除了 {removed_count} 个被误报为黑名单的白名单 IP")
+    return set(cleaned_black)
+
 def save_to_file(filename, cidr_set):
     """保存数据到文件，始终覆盖，排序"""
     try:
-        # 先合并CIDR段
-        print(f"    > 正在合并CIDR段...")
-        merged_cidrs = merge_cidrs(cidr_set)
-        
         # 按网络地址排序
-        sorted_cidrs = sorted(list(merged_cidrs), 
+        sorted_cidrs = sorted(list(cidr_set), 
                              key=lambda x: ipaddress.ip_network(x).network_address)
         
         with open(filename, "w", encoding="utf-8") as f:
             f.write("\n".join(sorted_cidrs))
-            # 确保文件结尾有换行
             f.write("\n")
         
-        original_count = len(cidr_set)
-        merged_count = len(merged_cidrs)
-        reduction = original_count - merged_count
-        
-        print(f"[SUCCESS] 已写入 {filename}")
-        print(f"          原始: {original_count} 条, 合并后: {merged_count} 条")
-        if reduction > 0:
-            print(f"          减少了 {reduction} 条重复/重叠记录")
+        print(f"[SUCCESS] 已写入 {filename} (共 {len(cidr_set)} 条)")
     except Exception as e:
         print(f"[ERROR] 写入 {filename} 失败: {e}")
 
@@ -269,7 +298,6 @@ def save_to_file(filename, cidr_set):
 
 def main():
     print(f"=== 开始执行 feed-mywaf-ip 更新任务: {datetime.datetime.now()} ===\n")
-    print("注意: 本脚本会自动合并重叠的CIDR段\n")
 
     # --- 1. 处理白名单 ---
     white_ips_all = set()
@@ -282,11 +310,15 @@ def main():
     for name, url in WHITE_TEXT_SOURCES.items():
         white_ips_all.update(fetch_text_cidrs(name, url))
 
-    print(f"\n[-] 白名单收集完成: 共 {len(white_ips_all)} 个IP段")
+    print(f"\n[-] 白名单收集完成: 原始 {len(white_ips_all)} 个IP段")
     print(f"[-] 开始合并白名单CIDR段...")
     
-    # 保存白名单 (自动去重和合并)
-    save_to_file(FILE_WHITE, white_ips_all)
+    # 合并白名单
+    merged_white = merge_cidrs(white_ips_all)
+    print(f"    √ 白名单合并后: {len(merged_white)} 个IP段")
+    
+    # 保存白名单
+    save_to_file(FILE_WHITE, merged_white)
     print("-" * 50)
 
     # --- 2. 处理黑名单 ---
@@ -296,23 +328,31 @@ def main():
     for name, url in BLACK_TEXT_SOURCES.items():
         black_ips_all.update(fetch_text_cidrs(name, url))
     
-    # 2.2 FireHOL 源 (新增)
+    # 2.2 FireHOL 源
     for name, url in FIREHOL_SOURCES.items():
         black_ips_all.update(fetch_text_cidrs(name, url))
     
-    # 2.3 BadIP 源 (最近7天)
+    # 2.3 BadIP 源
     black_ips_all.update(fetch_badip_recent_days(days=7))
     
-    print(f"\n[-] 黑名单收集完成: 共 {len(black_ips_all)} 个IP段")
+    print(f"\n[-] 黑名单收集完成: 原始 {len(black_ips_all)} 个IP段")
     print(f"[-] 开始合并黑名单CIDR段...")
     
-    # 保存黑名单 (自动去重和合并)
-    save_to_file(FILE_BLACK, black_ips_all)
+    # 合并黑名单
+    merged_black = merge_cidrs(black_ips_all)
+    print(f"    √ 黑名单合并后: {len(merged_black)} 个IP段")
+    
+    # --- 3. 核心升级：黑白名单冲突清洗 ---
+    # 使用合并后的白名单来清洗黑名单
+    final_black = clean_blacklist_against_whitelist(merged_black, merged_white)
+    
+    # 保存最终的黑名单
+    save_to_file(FILE_BLACK, final_black)
     print("-" * 50)
     
     print("\n=== 更新完成 ===")
-    print(f"白名单文件: {FILE_WHITE}")
-    print(f"黑名单文件: {FILE_BLACK}")
+    print(f"白名单文件: {FILE_WHITE} (优先级高)")
+    print(f"黑名单文件: {FILE_BLACK} (已剔除白名单IP)")
 
 if __name__ == "__main__":
     main()
