@@ -26,7 +26,7 @@ HEADERS = {
 WHITE_JSON_SOURCES = {
     "Bing": "https://www.bing.com/toolbox/bingbot.json",
     "Apple": "https://search.developer.apple.com/applebot.json",
-    "Google_static": "https://developers.google.com/static/search/apis/ipranges/googlebot.json"，
+    "Google_static": "https://developers.google.com/static/search/apis/ipranges/googlebot.json",
     "Google_search": "https://developers.google.com/search/apis/ipranges/googlebot.json",
     "Google_special": "https://developers.google.com/search/apis/ipranges/special-crawlers.json",
     "Google_user_triggered_fetchers": "https://developers.google.com/search/apis/ipranges/user-triggered-fetchers.json",
